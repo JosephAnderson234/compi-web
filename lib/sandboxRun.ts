@@ -7,6 +7,14 @@ interface SandboxRunResult {
   exitCode: number;
 }
 
+export interface SandboxRunOutcome {
+  result: SandboxRunResult;
+  // Stops and deletes the sandbox. Deferred to the caller so it can run this
+  // after the response is already sent (e.g. via next/server's `after`),
+  // since cleanup doesn't need to block the user from seeing their output.
+  cleanup: () => Promise<void>;
+}
+
 // Vercel Functions don't have gcc, which the compiler's --exec flag shells out to.
 // Vercel Sandbox runs on Amazon Linux 2023 with dnf + sudo, so gcc can be installed there instead.
 //
@@ -14,7 +22,7 @@ interface SandboxRunResult {
 // scripts/create-sandbox-snapshot.ts with gcc + the compiler already installed,
 // so the sandbox boots in under a second instead of installing them per request.
 // Without it, this falls back to installing everything from scratch each run.
-export async function runInSandbox(code: string): Promise<SandboxRunResult> {
+export async function runInSandbox(code: string): Promise<SandboxRunOutcome> {
   const snapshotId = process.env.SANDBOX_SNAPSHOT_ID;
   const binUrl = process.env.COMPILER_BIN_URL;
   if (!snapshotId && !binUrl) {
@@ -26,6 +34,17 @@ export async function runInSandbox(code: string): Promise<SandboxRunResult> {
     timeout: 60_000,
     persistent: false,
   });
+
+  // persistent: false means stop() won't snapshot it, but delete() also drops
+  // the sandbox record itself instead of leaving it listed as "stopped".
+  const cleanup = async () => {
+    try {
+      await sandbox.stop();
+      await sandbox.delete();
+    } catch (cleanupError) {
+      console.error('Failed to clean up sandbox', cleanupError);
+    }
+  };
 
   try {
     await sandbox.writeFiles([{ path: 'source.cnn', content: Buffer.from(code) }]);
@@ -40,10 +59,13 @@ export async function runInSandbox(code: string): Promise<SandboxRunResult> {
       });
       if (setup.exitCode !== 0) {
         return {
-          ok: false,
-          stdout: '',
-          stderr: `Sandbox setup failed: ${await setup.stderr()}`,
-          exitCode: setup.exitCode,
+          result: {
+            ok: false,
+            stdout: '',
+            stderr: `Sandbox setup failed: ${await setup.stderr()}`,
+            exitCode: setup.exitCode,
+          },
+          cleanup,
         };
       }
     }
@@ -51,30 +73,29 @@ export async function runInSandbox(code: string): Promise<SandboxRunResult> {
     const compile = await sandbox.runCommand('./c--', ['source.cnn', '--exec', '-o', 'out']);
     if (compile.exitCode !== 0) {
       return {
-        ok: false,
-        stdout: await compile.stdout(),
-        stderr: await compile.stderr(),
-        exitCode: compile.exitCode,
+        result: {
+          ok: false,
+          stdout: await compile.stdout(),
+          stderr: await compile.stderr(),
+          exitCode: compile.exitCode,
+        },
+        cleanup,
       };
     }
 
     const run = await sandbox.runCommand('./out', []);
     return {
-      ok: run.exitCode === 0,
-      stdout: await run.stdout(),
-      stderr: await run.stderr(),
-      exitCode: run.exitCode,
+      result: {
+        ok: run.exitCode === 0,
+        stdout: await run.stdout(),
+        stderr: await run.stderr(),
+        exitCode: run.exitCode,
+      },
+      cleanup,
     };
-  } finally {
-    // persistent: false means stop() won't snapshot it, but delete() also drops
-    // the sandbox record itself instead of leaving it listed as "stopped".
-    // Swallow cleanup errors here: throwing in `finally` would discard the
-    // compile/run result already computed in the try block above.
-    try {
-      await sandbox.stop();
-      await sandbox.delete();
-    } catch (cleanupError) {
-      console.error('Failed to clean up sandbox', cleanupError);
-    }
+  } catch (err) {
+    // Nobody will receive `cleanup` if we throw, so run it now instead of leaking the sandbox.
+    await cleanup();
+    throw err;
   }
 }

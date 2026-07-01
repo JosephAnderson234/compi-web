@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { writeFile, unlink } from 'fs/promises';
@@ -27,7 +27,8 @@ export async function POST(request: NextRequest) {
   // pipeline inside a Vercel Sandbox instead, which allows installing gcc on demand.
   if (process.env.VERCEL) {
     try {
-      const result = await runInSandbox(code);
+      const { result, cleanup } = await runInSandbox(code);
+      after(cleanup);
       return NextResponse.json(result);
     } catch (e: unknown) {
       const err = e as { message?: string };
