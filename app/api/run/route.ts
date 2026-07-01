@@ -6,6 +6,7 @@ import path from 'path';
 import os from 'os';
 import { randomUUID } from 'crypto';
 import { getCompilerBinaryPath } from '@/lib/compilerBin';
+import { runInSandbox } from '@/lib/sandboxRun';
 
 const execFileAsync = promisify(execFile);
 
@@ -20,6 +21,23 @@ export async function POST(request: NextRequest) {
   const { code } = await request.json();
   if (!code || typeof code !== 'string') {
     return NextResponse.json({ ok: false, error: 'No code provided' }, { status: 400 });
+  }
+
+  // Vercel Functions don't have gcc, which --exec needs. Run the compile+execute
+  // pipeline inside a Vercel Sandbox instead, which allows installing gcc on demand.
+  if (process.env.VERCEL) {
+    try {
+      const result = await runInSandbox(code);
+      return NextResponse.json(result);
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      return NextResponse.json({
+        ok: false,
+        stdout: '',
+        stderr: err.message || 'Sandbox error',
+        exitCode: 1,
+      });
+    }
   }
 
   const isWindows = process.platform === 'win32';
