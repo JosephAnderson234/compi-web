@@ -82,7 +82,7 @@ int main() {
   {
     name: 'Lambda',
     code: `int main() {
-  auto sum = [=](int a, int b) -> int {
+  auto sum = [](int a, int b) -> int {
     return a + b;
   };
   printf(sum(3, 4));
@@ -92,7 +92,7 @@ int main() {
   {
     name: 'Malloc',
     code: `int main() {
-  int* p = (int*) malloc(4);
+  int* p = malloc(4);
   *p = 99;
   printf(*p);
   free(p);
@@ -103,11 +103,15 @@ int main() {
     name: 'Template',
     code: `template <typename T>
 T max(T a, T b) {
-  return a > b ? a : b;
+  if (a > b) {
+    return a;
+  } else {
+    return b;
+  }
 }
 
 int main() {
-  printf(max(3, 7));
+  printf(max<int>(3, 7));
   return 0;
 }`,
   },
