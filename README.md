@@ -12,3 +12,7 @@ yarn dev
 # or
 pnpm dev
 ```
+
+## Production
+
+In production (Vercel), the compiler binary is downloaded at runtime from the `COMPILER_BIN_URL` environment variable instead of being read from the project root.
