@@ -80,12 +80,10 @@ int main() {
 }`,
   },
   {
-    name: 'Lambda',
+    name: 'Long Long',
     code: `int main() {
-  auto sum = [](int a, int b) -> int {
-    return a + b;
-  };
-  printf(sum(3, 4));
+  long long big = 100000;
+  printf(big);
   return 0;
 }`,
   },
@@ -100,18 +98,10 @@ int main() {
 }`,
   },
   {
-    name: 'Template',
-    code: `template <typename T>
-T max(T a, T b) {
-  if (a > b) {
-    return a;
-  } else {
-    return b;
-  }
-}
-
-int main() {
-  printf(max<int>(3, 7));
+    name: 'Unsigned',
+    code: `int main() {
+  unsigned u = 42;
+  printf(u);
   return 0;
 }`,
   },
