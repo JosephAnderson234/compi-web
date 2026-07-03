@@ -4,7 +4,7 @@ export const EXAMPLES: Example[] = [
   {
     name: 'Hola Mundo',
     code: `int main() {
-  printf(42);
+  printf("%d\\n", 42);
   return 0;
 }`,
   },
@@ -13,7 +13,7 @@ export const EXAMPLES: Example[] = [
     code: `int main() {
   int a = 5;
   int b = 3;
-  printf(a + b);
+  printf("%d\\n", a + b);
   return 0;
 }`,
   },
@@ -28,7 +28,7 @@ export const EXAMPLES: Example[] = [
 }
 
 int main() {
-  printf(fact(5));
+  printf("%d\\n", fact(5));
   return 0;
 }`,
   },
@@ -37,9 +37,9 @@ int main() {
     code: `int main() {
   int x = 2;
   switch (x) {
-    case 1: { printf(10); }
-    case 2: { printf(20); }
-    default: { printf(30); }
+    case 1: { printf("%d\\n", 10); }
+    case 2: { printf("%d\\n", 20); }
+    default: { printf("%d\\n", 30); }
   }
     return 0;
 }`,
@@ -49,7 +49,7 @@ int main() {
     code: `int main() {
   int x = 42;
   int* p = &x;
-  printf(*p);
+  printf("%d\\n", *p);
   return 0;
 }`,
   },
@@ -64,7 +64,7 @@ int main() {
   struct Punto pt;
   pt.x = 10;
   pt.y = 20;
-  printf(pt.x + pt.y);
+  printf("%d\\n", pt.x + pt.y);
   return 0;
 }`,
   },
@@ -75,7 +75,7 @@ int main() {
   arr[0] = 1;
   arr[1] = 2;
   arr[2] = 3;
-  printf(arr[0] + arr[1] + arr[2]);
+  printf("%d\\n", arr[0] + arr[1] + arr[2]);
   return 0;
 }`,
   },
@@ -83,7 +83,7 @@ int main() {
     name: 'Long Long',
     code: `int main() {
   long long big = 100000;
-  printf(big);
+  printf("%d\\n", big);
   return 0;
 }`,
   },
@@ -92,7 +92,7 @@ int main() {
     code: `int main() {
   int* p = malloc(4);
   *p = 99;
-  printf(*p);
+  printf("%d\\n", *p);
   free(p);
   return 0;
 }`,
@@ -101,7 +101,7 @@ int main() {
     name: 'Unsigned',
     code: `int main() {
   unsigned u = 42;
-  printf(u);
+  printf("%d\\n", u);
   return 0;
 }`,
   },
@@ -110,7 +110,7 @@ int main() {
     code: `int main() {
   int i = 0;
   while (i < 5) {
-    printf(i);
+    printf("%d\\n", i);
     i = i + 1;
   }
     return 0;
@@ -120,7 +120,7 @@ int main() {
     name: 'For loop',
     code: `int main() {
   for (int i = 0; i < 3; i = i + 1) {
-    printf(i);
+    printf("%d\\n", i);
   }
     return 0;
 }`,
