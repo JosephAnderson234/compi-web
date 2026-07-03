@@ -48,3 +48,4 @@ c--
 
 assembly/*
 .vercel
+.gstack/
