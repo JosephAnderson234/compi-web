@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 interface TreeNode {
   id: string;
@@ -231,19 +231,53 @@ function layoutTree(nodes: TreeNode[], openSet: Set<string>) {
 
 function flattenLayout(roots: PosNode[]) {
   const flat: PosNode[] = [];
-  const edges: { x1: number; y1: number; x2: number; y2: number }[] = [];
+  const edges: { parentId: string; childId: string }[] = [];
   let maxY = 0;
 
   const walk = (n: PosNode) => {
     flat.push(n);
     maxY = Math.max(maxY, n.y);
     for (const c of n.visKids) {
-      edges.push({ x1: n.x, y1: n.y + NODE_H / 2, x2: c.x, y2: c.y - NODE_H / 2 });
+      edges.push({ parentId: n.id, childId: c.id });
       walk(c);
     }
   };
   roots.forEach(walk);
   return { flat, edges, maxY };
+}
+
+interface DragOffset {
+  dx: number;
+  dy: number;
+}
+
+const DRAG_PAD = 32;
+const DRAG_THRESHOLD = 4;
+
+function computeBounds(
+  effNodes: { ex: number; ey: number; w: number }[],
+  fallbackWidth: number,
+  fallbackHeight: number
+) {
+  if (effNodes.length === 0) {
+    return { minX: 0, minY: 0, maxX: fallbackWidth, maxY: fallbackHeight };
+  }
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const n of effNodes) {
+    minX = Math.min(minX, n.ex - n.w / 2);
+    maxX = Math.max(maxX, n.ex + n.w / 2);
+    minY = Math.min(minY, n.ey - NODE_H / 2);
+    maxY = Math.max(maxY, n.ey + NODE_H / 2);
+  }
+  return {
+    minX: Math.min(0, minX) - DRAG_PAD,
+    minY: Math.min(0, minY) - DRAG_PAD,
+    maxX: Math.max(fallbackWidth, maxX) + DRAG_PAD,
+    maxY: Math.max(fallbackHeight, maxY) + DRAG_PAD,
+  };
 }
 
 function DiagramView({
@@ -258,13 +292,81 @@ function DiagramView({
   matches: Set<string>;
 }) {
   const [zoom, setZoom] = useState(1);
+  const [overrides, setOverrides] = useState<Map<string, DragOffset>>(new Map());
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  // Manual node positions only make sense for the AST that produced them.
+  const [prevNodes, setPrevNodes] = useState(nodes);
+  if (nodes !== prevNodes) {
+    setPrevNodes(nodes);
+    setOverrides(new Map());
+  }
+
+  const dragRef = useRef<{
+    id: string;
+    startX: number;
+    startY: number;
+    baseDx: number;
+    baseDy: number;
+    moved: boolean;
+  } | null>(null);
 
   const { roots, width } = useMemo(() => layoutTree(nodes, openSet), [nodes, openSet]);
   const { flat, edges, maxY } = useMemo(() => flattenLayout(roots), [roots]);
 
   const padding = 24;
-  const svgWidth = Math.max(width + padding * 2, 200);
-  const svgHeight = maxY + NODE_H + padding * 2;
+  const baseWidth = Math.max(width + padding * 2, 200);
+  const baseHeight = maxY + NODE_H + padding * 2;
+
+  const effNodes = useMemo(
+    () =>
+      flat.map((n) => {
+        const o = overrides.get(n.id);
+        return { ...n, ex: n.x + (o?.dx ?? 0), ey: n.y + (o?.dy ?? 0) };
+      }),
+    [flat, overrides]
+  );
+  const posById = useMemo(() => new Map(effNodes.map((n) => [n.id, n])), [effNodes]);
+  const bounds = useMemo(() => computeBounds(effNodes, baseWidth, baseHeight), [effNodes, baseWidth, baseHeight]);
+
+  const svgWidth = bounds.maxX - bounds.minX;
+  const svgHeight = bounds.maxY - bounds.minY;
+
+  const handlePointerDown = (e: ReactPointerEvent<SVGGElement>, id: string) => {
+    e.stopPropagation();
+    (e.target as Element).setPointerCapture(e.pointerId);
+    const base = overrides.get(id) ?? { dx: 0, dy: 0 };
+    dragRef.current = { id, startX: e.clientX, startY: e.clientY, baseDx: base.dx, baseDy: base.dy, moved: false };
+    setDraggingId(id);
+  };
+
+  const handlePointerMove = (e: ReactPointerEvent<SVGGElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const dxScreen = e.clientX - drag.startX;
+    const dyScreen = e.clientY - drag.startY;
+    if (Math.abs(dxScreen) > DRAG_THRESHOLD || Math.abs(dyScreen) > DRAG_THRESHOLD) {
+      drag.moved = true;
+    }
+    const dx = drag.baseDx + dxScreen / zoom;
+    const dy = drag.baseDy + dyScreen / zoom;
+    setOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(drag.id, { dx, dy });
+      return next;
+    });
+  };
+
+  const handlePointerUp = (e: ReactPointerEvent<SVGGElement>, node: PosNode) => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    setDraggingId(null);
+    if (drag && !drag.moved && node.children.length > 0) {
+      onToggle(node.id);
+    }
+  };
+
+  const resetPositions = () => setOverrides(new Map());
 
   return (
     <div className="h-full flex flex-col">
@@ -277,74 +379,94 @@ function DiagramView({
           +
         </button>
         <button className={btnClass} onClick={() => setZoom(1)}>
-          Reset
+          Reset zoom
         </button>
+        {overrides.size > 0 && (
+          <button className={btnClass} onClick={resetPositions}>
+            Reordenar auto
+          </button>
+        )}
+        <span className="text-xs text-gray-600 ml-auto">Arrastra un nodo para reacomodarlo</span>
       </div>
       <div className="flex-1 overflow-auto bg-gray-950">
-        <svg width={svgWidth * zoom} height={svgHeight * zoom} viewBox={`0 0 ${svgWidth} ${svgHeight}`}>
-          <g transform={`translate(${padding}, ${padding})`}>
-            {edges.map((e, i) => (
+        <svg
+          width={svgWidth * zoom}
+          height={svgHeight * zoom}
+          viewBox={`${bounds.minX} ${bounds.minY} ${svgWidth} ${svgHeight}`}
+        >
+          {edges.map((e, i) => {
+            const parent = posById.get(e.parentId);
+            const child = posById.get(e.childId);
+            if (!parent || !child) return null;
+            const x1 = parent.ex;
+            const y1 = parent.ey + NODE_H / 2;
+            const x2 = child.ex;
+            const y2 = child.ey - NODE_H / 2;
+            return (
               <path
                 key={i}
-                d={`M ${e.x1} ${e.y1} C ${e.x1} ${(e.y1 + e.y2) / 2}, ${e.x2} ${(e.y1 + e.y2) / 2}, ${e.x2} ${e.y2}`}
+                d={`M ${x1} ${y1} C ${x1} ${(y1 + y2) / 2}, ${x2} ${(y1 + y2) / 2}, ${x2} ${y2}`}
                 fill="none"
                 stroke="#4b5563"
                 strokeWidth={1.5}
               />
-            ))}
-            {flat.map((n) => {
-              const hasChildren = n.children.length > 0;
-              const isOpen = openSet.has(n.id);
-              const isMatch = matches.has(n.id);
-              return (
-                <g
-                  key={n.id}
-                  transform={`translate(${n.x - n.w / 2}, ${n.y - NODE_H / 2})`}
-                  className={hasChildren ? 'cursor-pointer' : ''}
-                  onClick={() => hasChildren && onToggle(n.id)}
+            );
+          })}
+          {effNodes.map((n) => {
+            const hasChildren = n.children.length > 0;
+            const isOpen = openSet.has(n.id);
+            const isMatch = matches.has(n.id);
+            const isDragging = draggingId === n.id;
+            return (
+              <g
+                key={n.id}
+                transform={`translate(${n.ex - n.w / 2}, ${n.ey - NODE_H / 2})`}
+                className={isDragging ? 'cursor-grabbing' : 'cursor-grab'}
+                onPointerDown={(e) => handlePointerDown(e, n.id)}
+                onPointerMove={handlePointerMove}
+                onPointerUp={(e) => handlePointerUp(e, n)}
+              >
+                <title>{n.label}</title>
+                <rect
+                  width={n.w}
+                  height={NODE_H}
+                  rx={6}
+                  fill={isMatch ? 'rgba(234,179,8,0.15)' : '#111827'}
+                  stroke={isMatch ? '#eab308' : hasChildren ? '#3b82f6' : '#374151'}
+                  strokeWidth={isMatch ? 1.5 : 1}
+                />
+                <text
+                  x={n.w / 2}
+                  y={n.detail ? NODE_H / 2 - 6 : NODE_H / 2 + 1}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontSize={11}
+                  fontFamily="monospace"
+                  fill={hasChildren ? '#93c5fd' : '#9ca3af'}
                 >
-                  <title>{n.label}</title>
-                  <rect
-                    width={n.w}
-                    height={NODE_H}
-                    rx={6}
-                    fill={isMatch ? 'rgba(234,179,8,0.15)' : '#111827'}
-                    stroke={isMatch ? '#eab308' : hasChildren ? '#3b82f6' : '#374151'}
-                    strokeWidth={isMatch ? 1.5 : 1}
-                  />
+                  {truncate(n.name, n.w)}
+                </text>
+                {n.detail && (
                   <text
                     x={n.w / 2}
-                    y={n.detail ? NODE_H / 2 - 6 : NODE_H / 2 + 1}
+                    y={NODE_H / 2 + 10}
                     textAnchor="middle"
                     dominantBaseline="middle"
-                    fontSize={11}
+                    fontSize={9.5}
                     fontFamily="monospace"
-                    fill={hasChildren ? '#93c5fd' : '#9ca3af'}
+                    fill="#fde047"
                   >
-                    {truncate(n.name, n.w)}
+                    {truncate(n.detail, n.w)}
                   </text>
-                  {n.detail && (
-                    <text
-                      x={n.w / 2}
-                      y={NODE_H / 2 + 10}
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                      fontSize={9.5}
-                      fontFamily="monospace"
-                      fill="#fde047"
-                    >
-                      {truncate(n.detail, n.w)}
-                    </text>
-                  )}
-                  {hasChildren && (
-                    <text x={n.w - 6} y={9} textAnchor="end" fontSize={9} fontFamily="monospace" fill="#6b7280">
-                      {isOpen ? '−' : `+${n.children.length}`}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
-          </g>
+                )}
+                {hasChildren && (
+                  <text x={n.w - 6} y={9} textAnchor="end" fontSize={9} fontFamily="monospace" fill="#6b7280">
+                    {isOpen ? '−' : `+${n.children.length}`}
+                  </text>
+                )}
+              </g>
+            );
+          })}
         </svg>
       </div>
     </div>
